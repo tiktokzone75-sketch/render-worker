@@ -29,6 +29,7 @@ jobs:
           BACKGROUND_VIDEO_URL: ${{ github.event.client_payload.background_video_url }}
           AUDIO_URL: ${{ github.event.client_payload.audio_url }}
           CAPTIONS_JSON: ${{ toJson(github.event.client_payload.captions) }}
+          INTRO_CARD_JSON: ${{ toJson(github.event.client_payload.intro_card) }}
           WEBHOOK_URL: ${{ github.event.client_payload.webhook_url }}
           RENDER_WORKER_SECRET: ${{ secrets.RENDER_WORKER_SECRET }}
         run: python3 render.py
