@@ -1,9 +1,10 @@
 import {bundle} from '@remotion/bundler';
-import {renderMedia, selectComposition, getAudioDurationInSeconds} from '@remotion/renderer';
+import {renderMedia, selectComposition} from '@remotion/renderer';
 import fetch from 'node-fetch';
 import fs from 'fs';
 import path from 'path';
 import {fileURLToPath} from 'url';
+import {execSync} from 'child_process';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -47,14 +48,28 @@ async function sendWebhookJson(payload) {
   }
 }
 
+async function downloadToFile(url, dest) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`فشل تحميل: ${url} - ${res.status}`);
+  const buffer = await res.buffer();
+  fs.writeFileSync(dest, buffer);
+}
+
 async function main() {
   const outputDir = '/tmp/render_output';
   fs.mkdirSync(outputDir, {recursive: true});
   const outputPath = path.join(outputDir, `${jobId}.mp4`);
+  const localAudioPath = path.join(outputDir, 'audio_local.mp3');
 
   try {
-    console.log(`[${jobId}] جاري حساب مدة الصوت...`);
-    const audioDurationSec = await getAudioDurationInSeconds(audioUrl);
+    console.log(`[${jobId}] جاري تحميل الصوت لحساب مدته...`);
+    await downloadToFile(audioUrl, localAudioPath);
+
+    console.log(`[${jobId}] جاري حساب مدة الصوت بـffprobe...`);
+    const durationStr = execSync(
+      `ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${localAudioPath}"`
+    ).toString().trim();
+    const audioDurationSec = parseFloat(durationStr);
     console.log(`[${jobId}] مدة الصوت: ${audioDurationSec} ثانية`);
 
     const fps = 30;
