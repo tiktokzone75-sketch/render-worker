@@ -1,14 +1,13 @@
 """
-Flovo Render Job — نسخة GitHub Actions
-==========================================
-سكريبت بيشتغل مرة واحدة، بيحمّل فيديو الخلفية + الصوت، يركّبهم بـFFmpeg
-مع تعليقات نصية، وبعدين يبعت النتيجة النهائية لسيرفرنا (Webhook).
+Flovo Render Job — نسخة كاملة مع بطاقة Reddit
+=================================================
 """
 
 import os
 import subprocess
 import json
 import requests
+from intro_card import generate_intro_card
 
 WORK_DIR = "/tmp/render_job"
 os.makedirs(WORK_DIR, exist_ok=True)
@@ -57,15 +56,22 @@ def main():
     webhook_url = os.environ["WEBHOOK_URL"]
     secret = os.environ.get("RENDER_WORKER_SECRET", "")
     captions_raw = os.environ.get("CAPTIONS_JSON", "[]")
+    intro_card_raw = os.environ.get("INTRO_CARD_JSON", "null")
 
     try:
         captions = json.loads(captions_raw) if captions_raw and captions_raw != "null" else []
     except Exception:
         captions = []
 
+    try:
+        intro_card_config = json.loads(intro_card_raw) if intro_card_raw and intro_card_raw != "null" else None
+    except Exception:
+        intro_card_config = None
+
     bg_path = os.path.join(WORK_DIR, "bg.mp4")
     audio_path = os.path.join(WORK_DIR, "audio.mp3")
     srt_path = os.path.join(WORK_DIR, "captions.srt")
+    card_path = os.path.join(WORK_DIR, "card.png")
     output_path = os.path.join(WORK_DIR, "output.mp4")
 
     try:
@@ -78,6 +84,14 @@ def main():
         audio_duration = get_audio_duration(audio_path)
         print(f"[{job_id}] مدة الصوت: {audio_duration} ثانية")
 
+        has_card = bool(intro_card_config and intro_card_config.get("enabled"))
+        if has_card:
+            print(f"[{job_id}] جاري رسم بطاقة Reddit...")
+            generate_intro_card(intro_card_config, card_path)
+
+        filter_parts = []
+        filter_parts.append("[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920[bg]")
+
         if captions:
             build_srt(captions, srt_path)
             subtitle_filter = (
@@ -85,23 +99,33 @@ def main():
                 "'FontName=Arial,FontSize=16,PrimaryColour=&HFFFFFF&,"
                 "OutlineColour=&H000000&,BorderStyle=1,Outline=2,Alignment=2,MarginV=120'"
             )
-            vf = f"scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,{subtitle_filter}"
-        else:
-            vf = "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920"
+            filter_parts[-1] = filter_parts[-1].replace("[bg]", f",{subtitle_filter}[bg]")
 
-        print(f"[{job_id}] جاري تركيب الفيديو بـFFmpeg...")
+        inputs = ["-stream_loop", "-1", "-i", bg_path, "-i", audio_path]
+
+        if has_card:
+            inputs += ["-i", card_path]
+            filter_parts.append(
+                f"[bg][2:v]overlay=0:0:enable='between(t,0,5)'[outv]"
+            )
+            final_video_label = "[outv]"
+        else:
+            final_video_label = "[bg]"
+
+        filter_complex = ";".join(filter_parts)
+
         cmd = [
             "ffmpeg", "-y",
-            "-stream_loop", "-1", "-i", bg_path,
-            "-i", audio_path,
+            *inputs,
             "-t", str(audio_duration),
-            "-vf", vf,
-            "-map", "0:v:0", "-map", "1:a:0",
+            "-filter_complex", filter_complex,
+            "-map", final_video_label, "-map", "1:a:0",
             "-c:v", "libx264", "-preset", "fast", "-crf", "23",
             "-c:a", "aac", "-b:a", "128k",
             "-shortest",
             output_path,
         ]
+        print(f"[{job_id}] جاري تركيب الفيديو بـFFmpeg...")
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=1500)
 
         if result.returncode != 0 or not os.path.exists(output_path):
