@@ -12,16 +12,16 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          python-version: "3.11"
+          node-version: "20"
 
-      - name: Install FFmpeg
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Install dependencies
+        run: npm install
 
-      - name: Install Python dependencies
-        run: pip install -r requirements.txt
+      - name: Install Chromium dependencies
+        run: npx remotion browser ensure
 
       - name: Run render job
         env:
@@ -32,4 +32,4 @@ jobs:
           INTRO_CARD_JSON: ${{ toJson(github.event.client_payload.intro_card) }}
           WEBHOOK_URL: ${{ github.event.client_payload.webhook_url }}
           RENDER_WORKER_SECRET: ${{ secrets.RENDER_WORKER_SECRET }}
-        run: python3 render.py
+        run: node render-job.mjs
