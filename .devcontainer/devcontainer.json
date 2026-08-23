@@ -6,12 +6,5 @@
   },
   "postCreateCommand": "sudo apt-get update && sudo apt-get install -y ffmpeg && pip install -r requirements.txt",
   "forwardPorts": [8080],
-  "portsAttributes": {
-    "8080": {
-      "label": "render-worker-api",
-      "onAutoForward": "ignore",
-      "visibility": "public"
-    }
-  },
-  "postStartCommand": "nohup python3 app.py > /tmp/app.log 2>&1 &"
+  "postStartCommand": "nohup python3 app.py > /tmp/app.log 2>&1 & sleep 3 && gh codespace ports visibility 8080:public -c $CODESPACE_NAME || true"
 }
