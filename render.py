@@ -33,7 +33,8 @@ def build_srt(captions, srt_path):
 
 
 def download_file(url, dest_path):
-    r = requests.get(url, stream=True, timeout=90)
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"}
+    r = requests.get(url, stream=True, timeout=90, headers=headers)
     r.raise_for_status()
     with open(dest_path, "wb") as f:
         for chunk in r.iter_content(chunk_size=8192):
