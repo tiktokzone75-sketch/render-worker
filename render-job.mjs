@@ -70,6 +70,7 @@ async function main() {
 
   console.log(`[${jobId}] جاري فتح متصفح مخفي...`);
   const browser = await chromium.launch({
+    channel: 'chrome',
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
