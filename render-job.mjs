@@ -40,9 +40,8 @@ try {
 const config = {
   backgroundVideoUrl,
   audioUrl,
-  captionTiming,
   captionStyle: 'classic',
-  isEnglish: false,
+  isEnglish,
   introCard,
 };
 
