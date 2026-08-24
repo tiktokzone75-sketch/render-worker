@@ -11,17 +11,16 @@ const backgroundVideoUrl = process.env.BACKGROUND_VIDEO_URL;
 const audioUrl = process.env.AUDIO_URL;
 const webhookUrl = process.env.WEBHOOK_URL;
 const secret = process.env.RENDER_WORKER_SECRET || '';
-const captionsJson = process.env.CAPTIONS_JSON || '[]';
+const sentencesJson = process.env.SENTENCES_JSON || '[]';
+const isEnglish = process.env.IS_ENGLISH === 'true';
 const introCardJson = process.env.INTRO_CARD_JSON || 'null';
 
-let captionTiming = { sentences: [], confidence: 0, usedFallback: true };
+let sentences = [];
 try {
-  const captions = JSON.parse(captionsJson) || [];
-  captionTiming = { sentences: captions, confidence: 1, usedFallback: false };
-  console.log('[' + jobId + '] عدد جمل الكابشن المستلمة:', captions.length);
-  console.log('[' + jobId + '] عيّنة من الكابشن:', JSON.stringify(captions.slice(0, 2)));
+  sentences = JSON.parse(sentencesJson) || [];
+  console.log('[' + jobId + '] عدد الجمل المستلمة:', sentences.length);
 } catch (e) {
-  console.log('[' + jobId + '] فشل تحليل CAPTIONS_JSON:', e.message, '| القيمة الخام:', captionsJson.slice(0, 300));
+  console.log('[' + jobId + '] فشل تحليل SENTENCES_JSON:', e.message);
 }
 
 let introCard = { enabled: false };
@@ -94,7 +93,7 @@ async function main() {
 
   await page.addInitScript((injectedConfig) => {
     window.__FLOVO_CONFIG__ = injectedConfig;
-  }, { config, jobId, webhookUrl, secret });
+  }, { config, sentences, isEnglish, jobId, webhookUrl, secret });
 
   console.log(`[${jobId}] جاري فتح الصفحة...`);
   await page.goto(`http://127.0.0.1:${port}/render.html`, { waitUntil: 'load', timeout: 30000 });
