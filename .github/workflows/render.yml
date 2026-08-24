@@ -20,8 +20,8 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Install Playwright browser
-        run: npx playwright install --with-deps chromium
+      - name: Install real Chrome (H.264 support)
+        run: npx playwright install --with-deps chrome
 
       - name: Run render job
         env:
