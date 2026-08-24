@@ -1,6 +1,6 @@
 // الجسر بين Playwright ومحرك الرندر الأصلي (render_engine.js) - صفر تعديل
-// على المحرك نفسه. الإعدادات بتوصله عن طريق window.__FLOVO_CONFIG__ اللي
-// Playwright بيحقنها قبل التحميل.
+// على المحرك نفسه. التوقيت بيتحسب هنا طازة بنفس محرك التوقيت الأصلي
+// (FlovoCaptionTiming بـWhisper) بدل ما يتم تمريره جاهز.
 
 async function runRenderJob() {
   const statusEl = document.getElementById('status');
@@ -12,9 +12,20 @@ async function runRenderJob() {
   }
 
   try {
+    let captionTiming = { sentences: [], confidence: 0, usedFallback: true };
+
+    if (cfg.sentences && cfg.sentences.length > 0) {
+      statusEl.textContent = 'computing_timing';
+      captionTiming = await window.FlovoCaptionTiming.extractTiming(
+        cfg.sentences, cfg.config.audioUrl, !!cfg.isEnglish
+      );
+    }
+
     statusEl.textContent = 'rendering';
 
-    const blob = await window.FlovoRenderEngine.render(cfg.config, (info) => {
+    const fullConfig = { ...cfg.config, captionTiming };
+
+    const blob = await window.FlovoRenderEngine.render(fullConfig, (info) => {
       statusEl.textContent = 'progress:' + (info.progress || 0);
     });
 
@@ -46,5 +57,4 @@ async function runRenderJob() {
   }
 }
 
-// بننتظر لحظة عشان نتأكد إن window.__FLOVO_CONFIG__ اتحقن فعلاً قبل ما نبدأ
 setTimeout(runRenderJob, 300);
