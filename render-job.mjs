@@ -13,6 +13,7 @@ const webhookUrl = process.env.WEBHOOK_URL;
 const secret = process.env.RENDER_WORKER_SECRET || '';
 const sentencesJson = process.env.SENTENCES_JSON || '[]';
 const isEnglish = process.env.IS_ENGLISH === 'true';
+const captionStyle = process.env.CAPTION_STYLE || 'classic';
 const introCardJson = process.env.INTRO_CARD_JSON || 'null';
 
 let sentences = [];
@@ -40,7 +41,7 @@ try {
 const config = {
   backgroundVideoUrl,
   audioUrl,
-  captionStyle: 'classic',
+  captionStyle,
   isEnglish,
   introCard,
 };
