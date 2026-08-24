@@ -1,10 +1,8 @@
-import {bundle} from '@remotion/bundler';
-import {renderMedia, selectComposition} from '@remotion/renderer';
-import fetch from 'node-fetch';
-import fs from 'fs';
+import { chromium } from 'playwright';
+import { fileURLToPath } from 'url';
 import path from 'path';
-import {fileURLToPath} from 'url';
-import {execSync} from 'child_process';
+import http from 'http';
+import fs from 'fs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -16,114 +14,100 @@ const secret = process.env.RENDER_WORKER_SECRET || '';
 const captionsJson = process.env.CAPTIONS_JSON || '[]';
 const introCardJson = process.env.INTRO_CARD_JSON || 'null';
 
-let captions = [];
+let captionTiming = { sentences: [], confidence: 0, usedFallback: true };
 try {
-  captions = JSON.parse(captionsJson) || [];
+  const captions = JSON.parse(captionsJson) || [];
+  captionTiming = { sentences: captions, confidence: 1, usedFallback: false };
 } catch {}
 
-let introCard = null;
+let introCard = { enabled: false };
 try {
   const parsed = JSON.parse(introCardJson);
-  if (parsed && parsed !== null) {
+  if (parsed && parsed.enabled) {
     introCard = {
-      enabled: !!parsed.enabled,
+      enabled: true,
       theme: parsed.theme || 'light',
-      isRTL: !!parsed.is_rtl,
-      avatarUrl: parsed.avatar_url || '',
+      avatarImageUrl: parsed.avatar_url || null,
       username: parsed.username || '',
       postText: parsed.post_text || '',
     };
   }
 } catch {}
 
-async function sendWebhookJson(payload) {
-  try {
-    await fetch(webhookUrl, {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({...payload, secret}),
-    });
-  } catch (e) {
-    console.error('فشل إرسال webhook:', e);
-  }
-}
+const config = {
+  backgroundVideoUrl,
+  audioUrl,
+  captionTiming,
+  captionStyle: 'classic',
+  isEnglish: false,
+  introCard,
+};
 
-async function downloadToFile(url, dest) {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`فشل تحميل: ${url} - ${res.status}`);
-  const buffer = await res.buffer();
-  fs.writeFileSync(dest, buffer);
+// سيرفر محلي بسيط بيقدّم الملفات (render.html, bridge.js) - عشان
+// المتصفح المخفي يقدر يفتحها كصفحة ويب عادية، مش ملف محلي مباشر
+function startLocalServer() {
+  return new Promise((resolve) => {
+    const server = http.createServer((req, res) => {
+      let filePath = req.url === '/' ? '/render.html' : req.url;
+      filePath = path.join(__dirname, filePath.split('?')[0]);
+      fs.readFile(filePath, (err, data) => {
+        if (err) { res.writeHead(404); res.end(); return; }
+        const ext = path.extname(filePath);
+        const contentType = ext === '.js' ? 'application/javascript' : 'text/html';
+        res.writeHead(200, { 'Content-Type': contentType });
+        res.end(data);
+      });
+    });
+    server.listen(0, '127.0.0.1', () => {
+      resolve({ server, port: server.address().port });
+    });
+  });
 }
 
 async function main() {
-  const outputDir = '/tmp/render_output';
-  fs.mkdirSync(outputDir, {recursive: true});
-  const outputPath = path.join(outputDir, `${jobId}.mp4`);
-  const localAudioPath = path.join(outputDir, 'audio_local.mp3');
+  console.log(`[${jobId}] جاري تشغيل سيرفر محلي...`);
+  const { server, port } = await startLocalServer();
 
-  try {
-    console.log(`[${jobId}] جاري تحميل الصوت لحساب مدته...`);
-    await downloadToFile(audioUrl, localAudioPath);
+  console.log(`[${jobId}] جاري فتح متصفح مخفي...`);
+  const browser = await chromium.launch({
+    args: ['--no-sandbox', '--disable-setuid-sandbox', '--autoplay-policy=no-user-gesture-required'],
+  });
+  const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  const page = await context.newPage();
 
-    console.log(`[${jobId}] جاري حساب مدة الصوت بـffprobe...`);
-    const durationStr = execSync(
-      `ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${localAudioPath}"`
-    ).toString().trim();
-    const audioDurationSec = parseFloat(durationStr);
-    console.log(`[${jobId}] مدة الصوت: ${audioDurationSec} ثانية`);
+  page.on('console', (msg) => console.log(`[${jobId}][browser] ${msg.text()}`));
+  page.on('pageerror', (err) => console.log(`[${jobId}][pageerror] ${err}`));
 
-    const fps = 30;
-    const durationInFrames = Math.ceil(audioDurationSec * fps);
+  await page.addInitScript((injectedConfig) => {
+    window.__FLOVO_CONFIG__ = injectedConfig;
+  }, { config, jobId, webhookUrl, secret });
 
-    console.log(`[${jobId}] جاري تجهيز المشروع (Bundling)...`);
-    const bundleLocation = await bundle({
-      entryPoint: path.join(__dirname, 'src', 'index.ts'),
-    });
+  console.log(`[${jobId}] جاري فتح الصفحة...`);
+  await page.goto(`http://127.0.0.1:${port}/render.html`, { waitUntil: 'load', timeout: 30000 });
 
-    const inputProps = {
-      backgroundVideoUrl,
-      audioUrl,
-      captions,
-      introCard,
-    };
+  console.log(`[${jobId}] جاري انتظار اكتمال الرندر (حتى ٢٠ دقيقة)...`);
+  let finalStatus = null;
+  for (let i = 0; i < 240; i++) {
+    await page.waitForTimeout(5000);
+    const status = await page.evaluate(() => document.getElementById('status')?.textContent || '');
+    console.log(`[${jobId}] الحالة: ${status}`);
+    if (status === 'DONE' || status.startsWith('FAILED') || status.startsWith('UPLOAD_FAILED') || status.startsWith('ERROR')) {
+      finalStatus = status;
+      break;
+    }
+  }
 
-    console.log(`[${jobId}] جاري اختيار القالب...`);
-    const composition = await selectComposition({
-      serveUrl: bundleLocation,
-      id: 'RedditStory',
-      inputProps,
-    });
+  console.log(`[${jobId}] النتيجة النهائية: ${finalStatus}`);
 
-    console.log(`[${jobId}] جاري الترميز (Rendering)...`);
-    await renderMedia({
-      composition: {...composition, durationInFrames, fps},
-      serveUrl: bundleLocation,
-      codec: 'h264',
-      outputLocation: outputPath,
-      inputProps,
-      onProgress: ({progress}) => {
-        if (Math.round(progress * 100) % 10 === 0) {
-          console.log(`[${jobId}] التقدّم: ${Math.round(progress * 100)}%`);
-        }
-      },
-    });
+  await browser.close();
+  server.close();
 
-    console.log(`[${jobId}] نجح الترميز، جاري الإرسال...`);
-    const videoBuffer = fs.readFileSync(outputPath);
-
-    const FormData = (await import('form-data')).default;
-    const form = new FormData();
-    form.append('video', videoBuffer, {filename: `${jobId}.mp4`, contentType: 'video/mp4'});
-    form.append('job_id', jobId);
-    form.append('ok', 'true');
-    form.append('secret', secret);
-
-    const res = await fetch(webhookUrl, {method: 'POST', body: form});
-    console.log(`[${jobId}] رد السيرفر: ${res.status}`);
-  } catch (err) {
-    console.error(`[${jobId}] خطأ:`, err);
-    await sendWebhookJson({job_id: jobId, ok: false, error: String(err.message || err)});
+  if (!finalStatus || finalStatus !== 'DONE') {
+    process.exit(1);
   }
 }
 
-main();
+main().catch((err) => {
+  console.error(`[${jobId}] خطأ عام:`, err);
+  process.exit(1);
+});
