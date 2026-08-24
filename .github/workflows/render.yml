@@ -30,6 +30,7 @@ jobs:
           AUDIO_URL: ${{ github.event.client_payload.audio_url }}
           SENTENCES_JSON: ${{ toJson(github.event.client_payload.sentences) }}
           IS_ENGLISH: ${{ github.event.client_payload.is_english }}
+          CAPTION_STYLE: ${{ github.event.client_payload.caption_style }}
           INTRO_CARD_JSON: ${{ toJson(github.event.client_payload.intro_card) }}
           WEBHOOK_URL: ${{ github.event.client_payload.webhook_url }}
           RENDER_WORKER_SECRET: ${{ secrets.RENDER_WORKER_SECRET }}
