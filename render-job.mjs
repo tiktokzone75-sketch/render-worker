@@ -18,7 +18,11 @@ let captionTiming = { sentences: [], confidence: 0, usedFallback: true };
 try {
   const captions = JSON.parse(captionsJson) || [];
   captionTiming = { sentences: captions, confidence: 1, usedFallback: false };
-} catch {}
+  console.log('[' + jobId + '] عدد جمل الكابشن المستلمة:', captions.length);
+  console.log('[' + jobId + '] عيّنة من الكابشن:', JSON.stringify(captions.slice(0, 2)));
+} catch (e) {
+  console.log('[' + jobId + '] فشل تحليل CAPTIONS_JSON:', e.message, '| القيمة الخام:', captionsJson.slice(0, 300));
+}
 
 let introCard = { enabled: false };
 try {
