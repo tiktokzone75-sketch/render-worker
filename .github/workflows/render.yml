@@ -20,8 +20,8 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Install Chromium dependencies
-        run: npx remotion browser ensure
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
 
       - name: Run render job
         env:
