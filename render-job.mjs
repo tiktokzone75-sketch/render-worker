@@ -77,6 +77,7 @@ async function main() {
 
   page.on('console', (msg) => console.log(`[${jobId}][browser] ${msg.text()}`));
   page.on('pageerror', (err) => console.log(`[${jobId}][pageerror] ${err}`));
+  page.on('requestfailed', (req) => console.log(`[${jobId}][requestfailed] ${req.url()} -- ${req.failure()?.errorText}`));
 
   await page.addInitScript((injectedConfig) => {
     window.__FLOVO_CONFIG__ = injectedConfig;
