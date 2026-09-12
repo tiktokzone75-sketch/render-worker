@@ -1,6 +1,8 @@
 // الجسر بين Playwright ومحرك الرندر الأصلي (render_engine.js) - صفر تعديل
 // على المحرك نفسه. التوقيت بيتحسب هنا طازة بنفس محرك التوقيت الأصلي
 // (FlovoCaptionTiming بـWhisper) بدل ما يتم تمريره جاهز.
+// وضع 'timeline' (عام لأي قالب جديد) بيتوجّه لدالة renderTimeline() الجديدة
+// مباشرة، من غير حساب توقيت كابشن خالص (مش محتاجه).
 
 async function runRenderJob() {
   const statusEl = document.getElementById('status');
@@ -12,22 +14,31 @@ async function runRenderJob() {
   }
 
   try {
-    let captionTiming = { sentences: [], confidence: 0, usedFallback: true };
+    let blob;
 
-    if (cfg.sentences && cfg.sentences.length > 0) {
-      statusEl.textContent = 'computing_timing';
-      captionTiming = await window.FlovoCaptionTiming.extractTiming(
-        cfg.sentences, cfg.config.audioUrl, !!cfg.isEnglish
-      );
+    if (cfg.mode === 'timeline') {
+      statusEl.textContent = 'rendering';
+      blob = await window.FlovoRenderEngine.renderTimeline(cfg.timeline, (info) => {
+        statusEl.textContent = 'progress:' + (info.progress || 0);
+      });
+    } else {
+      let captionTiming = { sentences: [], confidence: 0, usedFallback: true };
+
+      if (cfg.sentences && cfg.sentences.length > 0) {
+        statusEl.textContent = 'computing_timing';
+        captionTiming = await window.FlovoCaptionTiming.extractTiming(
+          cfg.sentences, cfg.config.audioUrl, !!cfg.isEnglish
+        );
+      }
+
+      statusEl.textContent = 'rendering';
+
+      const fullConfig = { ...cfg.config, captionTiming };
+
+      blob = await window.FlovoRenderEngine.render(fullConfig, (info) => {
+        statusEl.textContent = 'progress:' + (info.progress || 0);
+      });
     }
-
-    statusEl.textContent = 'rendering';
-
-    const fullConfig = { ...cfg.config, captionTiming };
-
-    const blob = await window.FlovoRenderEngine.render(fullConfig, (info) => {
-      statusEl.textContent = 'progress:' + (info.progress || 0);
-    });
 
     statusEl.textContent = 'uploading';
 
