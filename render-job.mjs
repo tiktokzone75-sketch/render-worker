@@ -7,6 +7,7 @@ import fs from 'fs';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const jobId = process.env.JOB_ID || 'unknown';
+const mode = process.env.MODE || 'reddit';
 const backgroundVideoUrl = process.env.BACKGROUND_VIDEO_URL;
 const audioUrl = process.env.AUDIO_URL;
 const webhookUrl = process.env.WEBHOOK_URL;
@@ -15,6 +16,7 @@ const sentencesJson = process.env.SENTENCES_JSON || '[]';
 const isEnglish = process.env.IS_ENGLISH === 'true';
 const captionStyle = process.env.CAPTION_STYLE || 'classic';
 const introCardJson = process.env.INTRO_CARD_JSON || 'null';
+const timelineJsonRaw = process.env.TIMELINE_JSON || 'null';
 
 let sentences = [];
 try {
@@ -37,6 +39,16 @@ try {
     };
   }
 } catch {}
+
+let timeline = null;
+if (mode === 'timeline') {
+  try {
+    timeline = JSON.parse(timelineJsonRaw);
+    console.log('[' + jobId + '] وضع timeline - عدد التراكات:', (timeline.tracks || []).length);
+  } catch (e) {
+    console.log('[' + jobId + '] فشل تحليل TIMELINE_JSON:', e.message);
+  }
+}
 
 const config = {
   backgroundVideoUrl,
@@ -93,7 +105,7 @@ async function main() {
 
   await page.addInitScript((injectedConfig) => {
     window.__FLOVO_CONFIG__ = injectedConfig;
-  }, { config, sentences, isEnglish, jobId, webhookUrl, secret });
+  }, { mode, config, timeline, sentences, isEnglish, jobId, webhookUrl, secret });
 
   console.log(`[${jobId}] جاري فتح الصفحة...`);
   await page.goto(`http://127.0.0.1:${port}/render.html`, { waitUntil: 'load', timeout: 30000 });
