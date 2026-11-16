@@ -7,7 +7,6 @@
  * صفر تعامل مباشر مع أي Provider. الذاكرة مستقلة لكل بوت لكل مستخدم (DB).
  */
 
-ob_start();
 header('Content-Type: application/json; charset=utf-8');
 header('Access-Control-Allow-Origin: https://conyo.ai');
 header('Access-Control-Allow-Credentials: true');
@@ -164,6 +163,7 @@ $isLoggedIn = $userId > 0;
 $userMsgId = agency_save_message($pdo, $conversationId, 'user', $userMessage);
 
 // رد فوري للمستخدم، وقطع الاتصال، والشغل الحقيقي يكمل بعد كده
+// (نفس الطريقة المستخدمة فعليًا وبنجاح في ai_gateway.php)
 echo json_encode([
     'ok' => true,
     'status' => 'processing',
@@ -173,12 +173,7 @@ echo json_encode([
 ]);
 
 if (function_exists('fastcgi_finish_request')) {
-    ignore_user_abort(true);
-    set_time_limit(0);
-    header('Content-Length: ' . ob_get_length());
     fastcgi_finish_request();
-} else {
-    flush();
 }
 
 // ==================== من هنا: الشغل الحقيقي بعد ما العميل خلص استقبال الرد ====================
