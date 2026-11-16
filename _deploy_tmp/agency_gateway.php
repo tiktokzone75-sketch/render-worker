@@ -7,6 +7,7 @@
  * صفر تعامل مباشر مع أي Provider. الذاكرة مستقلة لكل بوت لكل مستخدم (DB).
  */
 
+ob_start();
 header('Content-Type: application/json; charset=utf-8');
 header('Access-Control-Allow-Origin: https://conyo.ai');
 header('Access-Control-Allow-Credentials: true');
@@ -65,9 +66,10 @@ function agency_load_history(PDO $pdo, int $conversationId, int $limit = 24): ar
     return array_map(fn($r) => ['role' => $r['role'], 'content' => $r['content']], $rows);
 }
 
-function agency_save_message(PDO $pdo, int $conversationId, string $role, string $content, ?string $subBotId = null): void {
+function agency_save_message(PDO $pdo, int $conversationId, string $role, string $content, ?string $subBotId = null): int {
     $pdo->prepare('INSERT INTO flovo_agency_messages (conversation_id, role, sub_bot_id, content) VALUES (?, ?, ?, ?)')
         ->execute([$conversationId, $role, $subBotId, $content]);
+    return (int)$pdo->lastInsertId();
 }
 
 /* ==================== Gateway call wrapper ==================== */
@@ -148,25 +150,55 @@ function agency_run_orchestrator(FlovoAIGateway $gateway, PDO $pdo, array $catal
     return ['reply' => $final ?: $firstPass, 'subcalls' => $subResults];
 }
 
-/* ==================== Main dispatch ==================== */
+/* ==================== Main dispatch (async: respond now, work in background) ====================
+ * الأورشستريتور وكاتب السكريبت ممكن يستدعوا نموذج AI أكتر من مرة بالتتابع
+ * (قد يتجاوز 100-150 ثانية)، وده أطول من حد مهلة بروكسي Cloudflare قدّام
+ * الموقع (~100 ثانية). الحل: نرد فورًا بـ "processing" ونكمّل الشغل بعد
+ * قطع الاتصال، والواجهة تستعلم (poll) عن طريق agency_poll.php لحد ما
+ * تلاقي رسالة assistant جديدة.
+ */
 $conversationId = agency_get_conversation($pdo, $userId, $botId);
 $history = agency_load_history($pdo, $conversationId);
 $isLoggedIn = $userId > 0;
 
-agency_save_message($pdo, $conversationId, 'user', $userMessage);
+$userMsgId = agency_save_message($pdo, $conversationId, 'user', $userMessage);
 
-if ($botId === 'orchestrator') {
-    $result = agency_run_orchestrator($gateway, $pdo, $catalog, $history, $userMessage, $channelData, $isLoggedIn);
-    foreach ($result['subcalls'] as $sc) {
-        agency_save_message($pdo, $conversationId, 'subbot', $sc['reply'], $sc['bot_id']);
-    }
-    $reply = $result['reply'];
-} elseif ($botId === 'scriptwriting') {
-    $result = agency_run_scriptwriter($gateway, $history, $userMessage, $channelData, $isLoggedIn);
-    $reply = $result['reply'];
+// رد فوري للمستخدم، وقطع الاتصال، والشغل الحقيقي يكمل بعد كده
+echo json_encode([
+    'ok' => true,
+    'status' => 'processing',
+    'bot_id' => $botId,
+    'conversation_id' => $conversationId,
+    'since_id' => $userMsgId,
+]);
+
+if (function_exists('fastcgi_finish_request')) {
+    ignore_user_abort(true);
+    set_time_limit(0);
+    header('Content-Length: ' . ob_get_length());
+    fastcgi_finish_request();
 } else {
-    $sysPrompt = $catalog[$botId]['system_prompt'] . promptBlockChannel($channelData, $isLoggedIn);
-    $reply = agency_call_once($gateway, $sysPrompt, $history, $userMessage, 0.7, 4000);
+    flush();
+}
+
+// ==================== من هنا: الشغل الحقيقي بعد ما العميل خلص استقبال الرد ====================
+try {
+    if ($botId === 'orchestrator') {
+        $result = agency_run_orchestrator($gateway, $pdo, $catalog, $history, $userMessage, $channelData, $isLoggedIn);
+        foreach ($result['subcalls'] as $sc) {
+            agency_save_message($pdo, $conversationId, 'subbot', $sc['reply'], $sc['bot_id']);
+        }
+        $reply = $result['reply'];
+    } elseif ($botId === 'scriptwriting') {
+        $result = agency_run_scriptwriter($gateway, $history, $userMessage, $channelData, $isLoggedIn);
+        $reply = $result['reply'];
+    } else {
+        $sysPrompt = $catalog[$botId]['system_prompt'] . promptBlockChannel($channelData, $isLoggedIn);
+        $reply = agency_call_once($gateway, $sysPrompt, $history, $userMessage, 0.7, 4000);
+    }
+} catch (\Throwable $e) {
+    $reply = '';
+    error_log('[agency_gateway] exception: ' . $e->getMessage());
 }
 
 if (!$reply) {
@@ -174,5 +206,3 @@ if (!$reply) {
 }
 
 agency_save_message($pdo, $conversationId, 'assistant', $reply);
-
-echo json_encode(['ok' => true, 'reply' => $reply, 'bot_id' => $botId, 'conversation_id' => $conversationId]);
